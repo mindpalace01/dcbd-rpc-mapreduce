@@ -4,13 +4,12 @@ import re
 from multiprocessing import Pool, cpu_count
 from collections import Counter
 
-# CONFIG
 BASE_URL = "http://72.60.221.150:8080"
-STUDENT_ID = "MDS202517"  # CHANGE if needed
+STUDENT_ID = "MDS202517"
 
 
-# ---------------- LOGIN ----------------
 def login(student_id):
+    # get session key for authentication
     response = requests.post(
         f"{BASE_URL}/login",
         json={"student_id": student_id}
@@ -19,8 +18,8 @@ def login(student_id):
     return response.json()["secret_key"]
 
 
-# ---------------- GET TITLE (WITH KEY) ----------------
 def get_publication_title_with_key(key, filename):
+    # fetch title with retry handling (mainly for 429)
     while True:
         try:
             response = requests.post(
@@ -39,41 +38,34 @@ def get_publication_title_with_key(key, filename):
             time.sleep(0.2)
 
 
-# ---------------- MAPPER ----------------
 def mapper(filename_chunk):
+    # process a chunk of files and return word counts
     counter = Counter()
-
-    # login ONCE per worker
     key = login(STUDENT_ID)
 
     for filename in filename_chunk:
         title = get_publication_title_with_key(key, filename)
 
         if title:
-            # extract first word safely
-            first_word_raw = title.strip().split()[0]
+            first_word = title.strip().split()[0]
+            first_word = re.sub(r'^\W+|\W+$', '', first_word)
 
-            # remove punctuation from start/end
-            first_word = re.sub(r'^\W+|\W+$', '', first_word_raw)
-
-            if first_word:  # avoid empty strings
+            if first_word:
                 counter[first_word] += 1
 
     return counter
 
 
-# ---------------- REDUCE ----------------
 def reduce_counters(counters):
+    # merge all counters
     final = Counter()
-
     for c in counters:
         final.update(c)
-
     return final
 
 
-# ---------------- VERIFY ----------------
 def verify_top_10(student_id, top_10_list):
+    # send result to server
     key = login(student_id)
 
     response = requests.post(
@@ -85,11 +77,10 @@ def verify_top_10(student_id, top_10_list):
     print(response.json())
 
 
-# ---------------- MAIN ----------------
 if __name__ == "__main__":
     filenames = [f"pub_{i}.txt" for i in range(1000)]
 
-    # split into chunks
+    # split into chunks for parallel processing
     chunk_size = 50
     chunks = [filenames[i:i+chunk_size] for i in range(0, 1000, chunk_size)]
 
@@ -102,7 +93,6 @@ if __name__ == "__main__":
 
     final_counts = reduce_counters(results)
 
-    # get top 10 words
     top_10 = [word for word, _ in final_counts.most_common(10)]
 
     print("\nTop 10 words:")
